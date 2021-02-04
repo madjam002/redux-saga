@@ -103,5 +103,5 @@
     "webpack-dev-server": "^3.8.2",
     "webpack-hot-middleware": "^2.25.0"
   },
-  "version": "0.0.0"
+  "version": "0.1.0"
 }
