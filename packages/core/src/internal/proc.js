@@ -8,57 +8,28 @@ import { asyncIteratorSymbol, noop, shouldCancel, shouldTerminate } from './util
 import newTask from './newTask'
 import * as sagaError from './sagaError'
 
+function tco(fn) {
+  let active, nextArgs
+  return function() {
+    let result
+    nextArgs = arguments
+    if (!active) {
+      active = true
+      while (nextArgs) {
+        result = fn.apply(this, [nextArgs, (nextArgs = null)][0])
+      }
+      active = false
+    }
+    return result
+  }
+}
+
 export default function proc(env, iterator, parentContext, parentEffectId, meta, isRoot, cont) {
   if (process.env.NODE_ENV !== 'production' && iterator[asyncIteratorSymbol]) {
     throw new Error("redux-saga doesn't support async generators, please use only regular ones")
   }
 
   const finalRunEffect = env.finalizeRunEffect(runEffect)
-
-  /**
-    Tracks the current effect cancellation
-    Each time the generator progresses. calling runEffect will set a new value
-    on it. It allows propagating cancellation to child effects
-  **/
-  next.cancel = noop
-
-  /** Creates a main task to track the main flow */
-  const mainTask = { meta, cancel: cancelMain, status: RUNNING }
-
-  /**
-   Creates a new task descriptor for this generator.
-   A task is the aggregation of it's mainTask and all it's forked tasks.
-   **/
-  const task = newTask(env, mainTask, parentContext, parentEffectId, meta, isRoot, cont)
-
-  const executingContext = {
-    task,
-    digestEffect,
-  }
-
-  /**
-    cancellation of the main task. We'll simply resume the Generator with a TASK_CANCEL
-  **/
-  function cancelMain() {
-    if (mainTask.status === RUNNING) {
-      mainTask.status = CANCELLED
-      next(TASK_CANCEL)
-    }
-  }
-
-  /**
-    attaches cancellation logic to this task's continuation
-    this will permit cancellation to propagate down the call chain
-  **/
-  if (cont) {
-    cont.cancel = task.cancel
-  }
-
-  // kicks up the generator
-  next()
-
-  // then return the task descriptor to the caller
-  return task
 
   /**
    * This is the generator driver
@@ -69,7 +40,7 @@ export default function proc(env, iterator, parentContext, parentEffectId, meta,
    *
    * receives either (command | effect result, false) or (any thrown thing, true)
    */
-  function next(arg, isErr) {
+  const next = tco(function(arg, isErr) {
     try {
       let result
       if (isErr) {
@@ -120,7 +91,52 @@ export default function proc(env, iterator, parentContext, parentEffectId, meta,
 
       mainTask.cont(error, true)
     }
+  })
+
+  /**
+    Tracks the current effect cancellation
+    Each time the generator progresses. calling runEffect will set a new value
+    on it. It allows propagating cancellation to child effects
+  **/
+  next.cancel = noop
+
+  /** Creates a main task to track the main flow */
+  const mainTask = { meta, cancel: cancelMain, status: RUNNING }
+
+  /**
+   Creates a new task descriptor for this generator.
+   A task is the aggregation of it's mainTask and all it's forked tasks.
+   **/
+  const task = newTask(env, mainTask, parentContext, parentEffectId, meta, isRoot, cont)
+
+  const executingContext = {
+    task,
+    digestEffect,
   }
+
+  /**
+    cancellation of the main task. We'll simply resume the Generator with a TASK_CANCEL
+  **/
+  function cancelMain() {
+    if (mainTask.status === RUNNING) {
+      mainTask.status = CANCELLED
+      next(TASK_CANCEL)
+    }
+  }
+
+  /**
+    attaches cancellation logic to this task's continuation
+    this will permit cancellation to propagate down the call chain
+  **/
+  if (cont) {
+    cont.cancel = task.cancel
+  }
+
+  // kicks up the generator
+  next()
+
+  // then return the task descriptor to the caller
+  return task
 
   function runEffect(effect, effectId, currCb) {
     /**

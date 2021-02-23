@@ -1,5 +1,5 @@
 import { runSaga, stdChannel } from '../src'
-import { fork, take, put, select, all } from '../src/effects'
+import { fork, take, put, select, all, call } from '../src/effects'
 
 function storeLike(reducer, state) {
   const channel = stdChannel()
@@ -76,3 +76,15 @@ test('runSaga', () => {
     expect(actual).toEqual(expected)
   })
 })
+
+// test('runSaga tail call optimisation', async function() {
+//   const task = runSaga({}, root)
+
+//   function* root() {
+//     for (let i = 0; i < 2000; i++) {
+//       yield call(function() {})
+//     }
+//   }
+
+//   await task.toPromise()
+// })
